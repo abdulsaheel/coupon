@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h2>Congratulations!</h2>
+    <p>You have won {{ coins }} coins.</p>
+    <p>Your Wallet Balance: {{ wallet_balance }}</p>
+    <p>If you want to add it to your wallet, please click the button below:</p>
+    <form action="{{ url_for('add_to_wallet', coins=coins) }}" method="post">
+        <button type="submit">Add to Wallet</button>
+    </form>
+    <p>If you want to proceed with the coupon redemption, please check out the available products below:</p>
+    <ul>
+        {% for product in products %}
+            <li>
+                <h3>{{ product.title }}</h3>
+                <p>Price: {{ product.price }} coins</p>
+                <!-- Add the necessary form and button for coupon redemption -->
+                <form action="{{ url_for('add_to_cart', product_id=product.id) }}" method="post">
+                    <button type="submit">Redeem Coupon</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+{% endblock %}

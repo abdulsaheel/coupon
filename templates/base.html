@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shopify Coupon Redemption</title>
+</head>
+<body>
+    <header>
+        <h1>Shopify Coupon Redemption</h1>
+    </header>
+    <nav>
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/coupon/ATC_100_8478">Coupon Redemption</a></li>
+            <li><a href="/view_cart">Cart</a></li>
+            <li><a href="/checkout">Checkout</a></li>
+            {% if facebook.authorized %}
+                <li><a href="/logout">Logout</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+</body>
+</html>
