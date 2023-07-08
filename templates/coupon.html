@@ -3,6 +3,12 @@
 {% block content %}
     <h2>Coupon Redemption</h2>
     <h2>Welcome, {{ customer }}!</h2>
+  {% if coins_worth > 0 %}
+    <div class="flash-message success">
+      Congratulations! You have won {{ coins_worth }} coins worth.
+      If you want to add them to your wallet, click <a href="/add_coins?coins_worth={{ coins_worth }}">Add to Wallet</a>
+    </div>
+  {% endif %}
     <p>Choose from the available offers:</p>
     <ul>
         {% for product in products %}

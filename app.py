@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash
-from flask import Flask, request, render_template, redirect, url_for, session
+from flask import Flask, request, render_template, redirect, url_for, session, Markup
 from flask_dance.contrib.facebook import make_facebook_blueprint, facebook
 import mysql.connector
 from mysql.connector import Error
@@ -32,6 +32,8 @@ api_key = 'd6ffb16e3ef0d05e90554317b51110d2'
 api_password = '9dd2d12086f7d0b1c2505de926e44f09'
 
 
+# Mock database (replace with your actual database implementation)
+users_db = {}
 
 shopify.ShopifyResource.set_site(shop_url)
 shopify.ShopifyResource.set_user(api_key)
@@ -104,21 +106,26 @@ def home():
         except Error as e:
             print("Error connecting to the database:", e)
             return "An error occurred while connecting to the database."
+        
 
-# Coupon redemption
 @app.route('/coupon/<couponcode>', methods=['GET'])
 def coupon_redemption(couponcode):
     if not facebook.authorized:
         return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
-    else:
-        # Extract bill amount from coupon code
-        bill_amount = int(couponcode.split('_')[1])
 
-        # Get available offers
-        products = get_available_offers(bill_amount)
-        
+    # Extract bill amount and coins worth from coupon code
+    parts = couponcode.split('_')
+    if len(parts) != 3:
+        return "Invalid coupon code. Please try again."
 
-        return render_template('coupon.html', products=products)
+    coins_worth = int(couponcode.split('_')[1])  
+    bill_amount = int(couponcode.split('_')[1])
+
+
+    # Get available offers
+    products = get_available_offers(bill_amount)
+
+    return render_template('coupon.html', coins_worth=coins_worth, products=products)
 
 def get_product_by_id(id):
     products = shopify.Product.find()
@@ -127,6 +134,35 @@ def get_product_by_id(id):
             return product
     return None
 
+@app.route('/add_coins', methods=['GET'])
+def add_to_wallet():
+    if not facebook.authorized:
+        return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
+
+    # Get the user's Facebook ID
+    facebook_id = session.get('user_id')
+
+    # Retrieve the coins_worth value from the request arguments
+    coins_worth = request.args.get('coins_worth', type=int)
+
+    # Initialize the user's balance if not already present
+    if facebook_id not in users_db:
+        users_db[facebook_id] = 0
+
+    # Check if the coins_worth value is not None
+    if coins_worth is not None:
+        # Update the user's balance in the database
+        users_db[facebook_id] += coins_worth
+
+        # Retrieve the updated balance
+        balance = get_user_balance(facebook_id)
+
+        message = f"Coins worth {coins_worth} successfully added to your wallet. Your current balance is {balance}."
+        flash(message, 'success')
+    else:
+        flash("Invalid coins_worth value.", 'error')
+
+    return redirect(url_for('home'))
 
 @app.route('/checkout', methods=['GET'])
 def checkout():
@@ -234,6 +270,15 @@ def view_cart():
 
         return render_template('cart.html', cart=cart)
 
+
+def get_user_balance(facebook_id):
+    return users_db.get(facebook_id, 0)
+
+def update_user_balance(facebook_id, coins):
+    if facebook_id in users_db:
+        users_db[facebook_id] += coins
+    else:
+        users_db[facebook_id] = coins
 
 
 def add_product_to_cart(product):
