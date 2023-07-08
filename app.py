@@ -13,14 +13,6 @@ db_user = 'admin'
 db_password = 'password'
 db_port = 3306
 
-# Connect to the database
-connection = mysql.connector.connect(
-    host=db_host,
-    user=db_user,
-    password=db_password,
-    database=db_name
-)
-
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret'
 
@@ -39,18 +31,6 @@ shop_url = 'https://digitalmalls.in'
 api_key = 'd6ffb16e3ef0d05e90554317b51110d2'
 api_password = '9dd2d12086f7d0b1c2505de926e44f09'
 
-# Create the wallet table if it doesn't exist
-create_table_query = '''
-    CREATE TABLE IF NOT EXISTS wallet (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        balance INT NOT NULL DEFAULT 0,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    )
-'''
-
-cursor = connection.cursor()
-cursor.execute(create_table_query)
 
 
 shopify.ShopifyResource.set_site(shop_url)
@@ -68,6 +48,13 @@ def facebook_login():
     if not facebook.authorized:
         return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
     else:
+        return redirect(url_for("base"))
+
+@app.route('/')
+def home():
+    if not facebook.authorized:
+        return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
+    else:
         data = facebook.get('/me?fields=id,name,email,birthday,interested_in').json()
         name = data.get('name')
         id = data.get('id')
@@ -82,24 +69,43 @@ def facebook_login():
         print("Email:", email)
         print("Birthday:", birthday)
         print("Interested In:", interested_in)
-        session['user_id']=id
-        session['username']=name
-        return redirect(url_for("base"))
 
-@app.route('/')
-def home():
-    if not facebook.authorized:
-        return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
-    else:
-        data = facebook.get('/me?fields=id,name,email,birthday,interested_in').json()
-        name = data.get('name')
-        user_id = data.get('id')
+        # Store user ID and username in session
+        session['user_id'] = id
+        session['username'] = name
 
-        # Get the wallet balance from the database
-        wallet_balance = get_wallet_balance(user_id)
+        # Retrieve the user's coins from the MySQL database
+        try:
+            connection = mysql.connector.connect(
+                host=db_host,
+                database=db_name,
+                user=db_user,
+                password=db_password,
+                port=db_port
+            )
 
-        return render_template('coupon.html', user_id=user_id, wallet_balance=wallet_balance)
-    
+            if connection.is_connected():
+                # Query the database to retrieve the user's balance
+                cursor = connection.cursor()
+                cursor.execute(f"SELECT coins FROM users WHERE id = '{id}'")
+                result = cursor.fetchone()
+
+                if result:
+                    coins = result[0]
+                else:
+                    coins = 0
+
+                cursor.close()
+                connection.close()
+
+                return render_template('coupon.html', coins=coins, username=name)
+            else:
+                return "Failed to connect to the database."
+        except Error as e:
+            print("Error connecting to the database:", e)
+            return "An error occurred while connecting to the database."
+
+# Coupon redemption
 @app.route('/coupon/<couponcode>', methods=['GET'])
 def coupon_redemption(couponcode):
     if not facebook.authorized:
@@ -110,14 +116,9 @@ def coupon_redemption(couponcode):
 
         # Get available offers
         products = get_available_offers(bill_amount)
+        
 
-        # Retrieve the user's wallet balance
-        user_id = session.get('user_id')
-        wallet_balance = get_wallet_balance(user_id)
-
-        return render_template('coupon.html', products=products, user_id=user_id, wallet_balance=wallet_balance)
-
-
+        return render_template('coupon.html', products=products)
 
 def get_product_by_id(id):
     products = shopify.Product.find()
@@ -205,24 +206,6 @@ def order_confirmation(name):
     else:
         return render_template('confirmation.html', name=name)
 
-@app.route('/add_to_wallet/<int:coins>', methods=['POST'])
-def add_to_wallet(coins):
-    if not facebook.authorized:
-        return "You are not logged in. <a href='/login/facebook'>Click here to log in</a>"
-    else:
-        # Retrieve the user's ID from session
-        user_id = session.get('user_id')
-        
-        # Update the user's wallet balance in the database
-        update_wallet_balance(user_id, coins)
-
-        # Retrieve the updated wallet balance from the database
-        wallet_balance = get_wallet_balance(user_id)
-
-        # Redirect back to the coupon redemption page
-        return redirect(url_for('coupon_redemption', couponcode='ATC_100_8478', wallet_balance=wallet_balance))
-
-
 
 
 @app.route('/add_to_cart/<int:product_id>', methods=['GET', 'POST'])
@@ -252,29 +235,6 @@ def view_cart():
         return render_template('cart.html', cart=cart)
 
 
-def get_wallet_balance(user_id):
-    # Retrieve the user's wallet balance from the database
-    cursor = connection.cursor()
-    cursor.execute("SELECT balance FROM wallet WHERE user_id = %s", (user_id,))
-    result = cursor.fetchone()
-    if result:
-        return result[0]
-    else:
-        return 0
-    
-def update_wallet_balance(user_id, coins):
-    # Retrieve the user's current wallet balance
-    cursor = connection.cursor()
-    cursor.execute("SELECT balance FROM wallet WHERE user_id = %s", (user_id,))
-    result = cursor.fetchone()
-    current_balance = result[0] if result else 0
-
-    # Calculate the new balance
-    new_balance = current_balance + coins
-
-    # Update the balance in the wallet
-    cursor.execute("UPDATE wallet SET balance = %s WHERE user_id = %s", (new_balance, user_id))
-    connection.commit()
 
 def add_product_to_cart(product):
     # Retrieve the current cart from session or create a new one
@@ -303,21 +263,21 @@ def get_product_name(product_id):
     product = get_product_by_id(product_id)
     return product.title
 
+# Get available offers based on bill amount
 def get_available_offers(bill_amount):
     # Fetch products from Shopify store
     products = shopify.Product.find()
 
-    # Filter products based on bill amount and coins
+    # Filter products based on bill amount
     available_offers = []
     for product in products:
         variant_price = float(product.variants[0].price)
-        product_coins = int(variant_price)
-        if product_coins <= int(bill_amount) :
-            product.price = product_coins
+        coins = int(variant_price)
+        if coins <= int(bill_amount):
+            product.price = coins
             available_offers.append(product)
 
     return available_offers
-
 
 @app.route('/clear_cart', methods=['POST'])
 def clear_cart():
